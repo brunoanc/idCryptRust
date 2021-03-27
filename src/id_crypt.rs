@@ -28,10 +28,10 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 3 {
-		println!("Usage:\n\tidCrypt.exe <file-path> <internal-file-path>\n");
-		println!("Example:\n\tidCrypt.exe D:\\english.bfile strings/english.lang\n");
-		println!("If a .bfile is supplied it'll be decrypted to <file-path>.dec");
-		println!("Otherwise the file will be encrypted to <file-path>.bfile\n");
+		println!("Usage:\n\tidCrypt <file-path> <internal-file-path>\n");
+		println!("Example:\n\tidCrypt D:\\english.bfile strings/english.lang\n");
+		println!("If a .blang or .bfile is supplied it'll be decrypted to <file-path>.dec");
+		println!("Otherwise the file will be encrypted to <file-path>.blang\n");
 		println!("You _must_ use the correct internal filepath for decryption to succeed!");
         std::process::exit(1);
     }
