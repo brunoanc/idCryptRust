@@ -3,9 +3,9 @@ Command line utility to encrypt/decrypt DOOM's .bfile and .blang files.
 
 ## Usage
 ```
-idCrypt  <file-path> <internal-file-path>
+idCrypt [options] <file-path> <internal-file-path>
 ```
-The tool will try to decrypt if the file ends in .blang or .bfile, and encrypt otherwise.
+The tool will try to encrypt if the file ends in .dec, and decrypt otherwise. You can override this behavior with the `--encrypt` and `--decrypt` switches.
 
 ## Compiling
 ### Linux / macOS
