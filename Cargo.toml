@@ -1,18 +1,16 @@
 [package]
 name = "id_crypt"
-version = "1.0.0"
-authors = ["PowerBall253 <brunoanconasala@gmail.com>"]
-edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+version = "2.0.0"
+authors = ["Bruno Ancona <brunoanconasala@gmail.com>"]
+edition = "2021"
 
 [[bin]]
 name = "idCrypt"
 path = "src/id_crypt.rs"
 
 [dependencies]
-getrandom = "*"
-sha2 = "*"
-hmac = "*"
-aes = "*"
-block-modes = "*"
+getrandom = "0.2.15"
+sha2 = "0.10.8"
+hmac = "0.12.1"
+aes = "0.8.4"
+cbc = { version = "0.1.2", features = ["alloc"] }

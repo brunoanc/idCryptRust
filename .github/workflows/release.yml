@@ -1,0 +1,37 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    runs-on: ubuntu-20.04
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile=minimal
+
+      - name: Build project
+        run: |
+          PATH="${HOME}/.cargo/bin:${PATH}" cargo build --release
+
+      - name: Upload binary
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.SECRET_TOKEN }}
+          file_glob: true
+          file: '${{ github.workspace }}/target/release/idCrypt'
+          tag: ${{ github.ref }}

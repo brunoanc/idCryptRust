@@ -1,0 +1,37 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - '**'
+    tags-ignore:
+      - '**'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-test:
+    runs-on: ubuntu-20.04
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile=minimal
+
+      - name: Build project
+        run: |
+          PATH="${HOME}/.cargo/bin:${PATH}" cargo build
+
+      - name: Upload debug artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ubuntu-debug
+          path: ${{ github.workspace }}/target/debug/idCrypt

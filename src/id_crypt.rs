@@ -1,6 +1,6 @@
 /*
 * idCryptRust
-* Copyright (C) 2021 PowerBall253
+* Copyright (C) 2024 Bruno Ancona
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -18,139 +18,196 @@
 
 #![allow(non_snake_case)]
 
-extern crate getrandom;
-extern crate sha2;
-extern crate hmac;
-extern crate aes;
-extern crate block_modes;
+use std::{
+    ffi::OsStr,
+    fs::File,
+    io::{Read, Write},
+    path::Path,
+    process
+};
 
-use std::path::Path;
-use std::ffi::OsStr;
-use std::fs::File;
-use std::io::prelude::*;
-use getrandom::getrandom;
-use sha2::{Sha256, Digest};
-use hmac::{Hmac, Mac, NewMac};
-use aes::Aes128;
-use block_modes::{BlockMode, Cbc};
-use block_modes::block_padding::Pkcs7;
+use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
+use hmac::{Hmac, Mac};
+use sha2::{Digest, Sha256};
 
 type HmacSha256 = Hmac<Sha256>;
-type Aes128Cbc = Cbc<Aes128, Pkcs7>;
+type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
+type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
+
+// Display the help message
+fn display_help() {
+    println!(concat!(
+        "Usage: idCrypt [options] <file-path> <internal-file-path>\n\n",
+        "Options:\n",
+        "\t--decrypt, -d\t\tDecrypts the file.\n",
+        "\t--encrypt, -e\t\tEncrypts the file.\n\n",
+        "Example: idCrypt D:\\english.bfile strings/english.lang\n\n",
+        "If a .dec file is supplied it'll be encrypted to <file-path>.bfile.\n",
+        "Otherwise the file will be decrypted to <file-path>.dec.\n",
+        "You _must_ use the correct internal filepath for decryption to succeed!"
+    ));
+}
 
 fn main() {
-    println!("id_crypt v1.0 by PowerBall253\n");
-
-    let key_derive_static = "swapTeam\n".to_string();
+    println!("id_crypt v2.0 by Bruno Ancona\n");
 
     let args: Vec<String> = std::env::args().collect();
 
+    // Display usage instructions
     if args.len() < 3 {
-		println!("Usage:\n\tidCrypt <file-path> <internal-file-path>\n");
-		println!("Example:\n\tidCrypt D:\\english.bfile strings/english.lang\n");
-		println!("If a .blang or .bfile is supplied it'll be decrypted to <file-path>.dec");
-		println!("Otherwise the file will be encrypted to <file-path>.blang\n");
-		println!("You _must_ use the correct internal filepath for decryption to succeed!");
-        std::process::exit(1);
+        display_help();
+        process::exit(1);
     }
 
-    let mut decrypt = false;
+    // Process arguments
+    let mut decrypt = None;
+    let mut file_path = None;
+    let mut internal_path = None;
 
-    let file_path = &args[1];
-    let internal_path = &args[2];
-    let extension = String::from(Path::new(file_path).extension().and_then(OsStr::to_str).unwrap());
-
-    if extension.to_lowercase() == "blang" || extension.to_lowercase() == "bfile" {
-        decrypt = true;
+    for arg in &args[1..] {
+        match arg.as_str() {
+            "--decrypt" | "-decrypt" | "-d" => decrypt = Some(true),
+            "--encrypt" | "-encrypt" | "-e" => decrypt = Some(false),
+            "--help" | "-help" | "-h" => {
+                display_help();
+                process::exit(0);
+            },
+            _ => {
+                if file_path.is_none() {
+                    file_path = Some(arg);
+                }
+                else if internal_path.is_none() {
+                    internal_path = Some(arg);
+                }
+                else {
+                    display_help();
+                    process::exit(1);
+                }
+            },
+        }
     }
 
+    // If the necessary arguments weren't provided, abort
+    if file_path.is_none() || internal_path.is_none() {
+        display_help();
+        process::exit(1);
+    }
+
+    let file_path = file_path.unwrap();
+    let internal_path = internal_path.unwrap();
+
+    // If operation wasn't specified by user, decrypt by default, unless file extension is .dec
+    if decrypt.is_none() {
+        let extension = Path::new(&file_path).extension().and_then(OsStr::to_str).unwrap();
+        decrypt = Some(extension.to_lowercase() != "dec");
+    }
+
+    let decrypt = decrypt.unwrap();
+
+    // Get destination path
     let dest_path: String;
 
     if decrypt {
         dest_path = format!("{}.{}", file_path, "dec");
     }
     else {
-        dest_path = format!("{}.{}", file_path, "blang");
+        dest_path = format!("{}.{}", file_path, "bfile");
     }
 
-    let mut file = File::open(file_path).expect("Failed to open file for reading."); 
+    // Read input file into a Vec
+    let mut file = File::open(file_path).expect("ERROR: Failed to open file for reading.");
     let mut file_data: Vec<u8> = Vec::new();
-    file.read_to_end(&mut file_data).expect("Failed to read file.");
+    file.read_to_end(&mut file_data)
+        .expect("ERROR: Failed to read file.");
     let size = file_data.len();
 
-    let mut file_salt: Vec<u8>;
+    // Get file salt from encrypted file, or generate a random one
+    let mut file_salt = [0u8; 0xC];
 
     if decrypt {
-        file_salt = file_data[0..0xC].to_vec();
+        file_salt.copy_from_slice(&file_data[0..0xC]);
     }
     else {
-        file_salt = vec![0u8; 0xC];
-        getrandom(&mut file_salt).unwrap();
+        getrandom::getrandom(&mut file_salt).unwrap();
     }
 
+    // Get encryption key from SHA256 hash
     let mut hasher = Sha256::new();
     hasher.update(&file_salt);
-    let mut empty_byte_array = vec![0; 1];
-    let mut key_derive_static_bytes = key_derive_static.as_bytes().to_vec();
-    key_derive_static_bytes.append(&mut empty_byte_array);
-    hasher.update(&key_derive_static_bytes);
+    hasher.update(b"swapTeam\n");
+    hasher.update(&[0u8; 1]);
     hasher.update(&internal_path);
-    let enc_key = hasher.finalize().to_vec();
-    
-    let mut file_iv = vec![0u8; 0x10];
+    let enc_key = hasher.finalize();
+
+    // Get file salt from encrypted file, or generate a random one
+    let mut file_iv = [0u8; 0x10];
 
     if decrypt {
-        file_iv = file_data[0xC..(0xC + 0x10)].to_vec();
+        file_iv.copy_from_slice(&file_data[0xC..(0xC + 0x10)]);
     }
     else {
-        getrandom(&mut file_iv).unwrap();
+        getrandom::getrandom(&mut file_iv).unwrap();
     }
 
-    let mut file_text = file_data.clone();
-    let hmac: Vec<u8>;
+    // Get ciphertext / plaintext according to the operation
+    let file_text: Vec<u8>;
+    let mut hmac = [0u8; 0x20];
 
     if decrypt {
-        file_text = file_data[0x1C..(size as usize - 0x20)].to_vec();
+        file_text = file_data[0x1C..(size - 0x20)].to_vec();
 
-        let file_hmac = file_data[(size as usize - 0x20)..(size as usize)].to_vec();
-
-        let mut mac_hasher = HmacSha256::new_varkey(&enc_key).unwrap();
+        // Verify the HMAC in the file is correct, abort otherwise
+        let mut mac_hasher = HmacSha256::new_from_slice(&enc_key).unwrap();
         mac_hasher.update(&file_salt);
         mac_hasher.update(&file_iv);
         mac_hasher.update(&file_text);
-        hmac = mac_hasher.finalize().into_bytes().to_vec();
+        hmac.copy_from_slice(&mac_hasher.finalize().into_bytes());
 
-        assert_eq!(hmac.to_vec(), file_hmac);
+        if hmac != &file_data[(size - 0x20)..size] {
+            eprintln!("ERROR: The encrypted file's HMAC doesn't match, might be corrupted.");
+            process::exit(1);
+        }
+    }
+    else {
+        file_text = file_data.clone();
     }
 
-    let cipher = Aes128Cbc::new_var(&enc_key[0..0x10].to_vec(), &file_iv).unwrap();
+    // Decrypt or encrypt the data using AES 128 CBC
     let crypted_text: Vec<u8>;
 
     if decrypt {
-        crypted_text = cipher.decrypt_vec(&file_text).unwrap();
+        crypted_text = Aes128CbcDec::new(enc_key[0..0x10].into(), &file_iv.into())
+            .decrypt_padded_vec_mut::<Pkcs7>(&file_text)
+            .expect("ERROR: Failed to decrypt the file.");
     }
     else {
-        crypted_text = cipher.encrypt_vec(&file_text);
+        crypted_text = Aes128CbcEnc::new(enc_key[0..0x10].into(), &file_iv.into())
+            .encrypt_padded_vec_mut::<Pkcs7>(&file_text);
     }
 
-    let mut file = File::create(&dest_path).expect("Failed to open destination path for writing.");
+    let mut file = File::create(&dest_path).expect("ERROR: Failed to open destination path for writing.");
 
     if decrypt {
-        file.write_all(&crypted_text).expect("Failed to write new contents to destination path");
+        file.write_all(&crypted_text)
+            .expect("ERROR: Failed to write new contents to destination path");
 
         println!("Decryption succeeded! Wrote to {}\n", dest_path);
     }
     else {
-        file.write(&file_salt).expect("Failed to write new contents to destination path.");
-        file.write(&file_iv).expect("Failed to write new contents to destination path.");
-        file.write(&crypted_text).expect("Failed to write new contents to destination path.");
+        file.write(&file_salt)
+            .expect("ERROR: Failed to write new contents to destination path.");
+        file.write(&file_iv)
+            .expect("ERROR: Failed to write new contents to destination path.");
+        file.write(&crypted_text)
+            .expect("ERROR: Failed to write new contents to destination path.");
 
-        let mut mac_hasher = HmacSha256::new_varkey(&enc_key).unwrap();
+        // Get the HMAC hash
+        let mut mac_hasher = HmacSha256::new_from_slice(&enc_key).unwrap();
         mac_hasher.update(&file_salt);
         mac_hasher.update(&file_iv);
         mac_hasher.update(&crypted_text);
-        let hmac = mac_hasher.finalize().into_bytes().to_vec();
-        file.write(&hmac).expect("Failed to write new contents to destination path.");
+        file.write(&mac_hasher.finalize().into_bytes())
+            .expect("ERROR: Failed to write new contents to destination path.");
 
         println!("Encryption succeeded! Wrote to {}\n", dest_path);
     }
